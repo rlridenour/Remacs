@@ -95,6 +95,7 @@ struct OrgTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             text.wrappedValue = textView.text
+            textView.scrollRangeToVisible(textView.selectedRange)
         }
 
         func updateExternalText(_ newValue: String) {

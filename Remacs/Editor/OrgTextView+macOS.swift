@@ -95,6 +95,8 @@ struct OrgTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = [NSView.AutoresizingMask.width]
         textView.font = PlatformFont.orgBody
         textView.onToggleFold = { [weak coordinator = context.coordinator] index in
@@ -133,6 +135,11 @@ struct OrgTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             text.wrappedValue = textView.string
+            // The syntax highlighter restyles the whole document on every keystroke
+            // (see OrgTextStorage.highlight), which can leave AppKit's own "keep the
+            // caret visible" scrolling out of sync with the just-grown layout. Reassert
+            // it explicitly so typing past the bottom of the window keeps scrolling.
+            textView.scrollRangeToVisible(textView.selectedRange())
         }
 
         func updateExternalText(_ newValue: String) {
