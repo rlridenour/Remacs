@@ -123,14 +123,14 @@ struct OrgTextView: UIViewRepresentable {
                 wordRange(in: textView, at: selected.location)
             })
 
-            let (replacement, innerSelection) = OrgEmphasisFormatting.wrap(range, in: text, with: emphasis)
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
-                  let end = textView.position(from: start, offset: range.length),
+            let (replaceRange, replacement, newSelection) = OrgEmphasisFormatting.toggle(range, in: text, with: emphasis)
+            guard let start = textView.position(from: textView.beginningOfDocument, offset: replaceRange.location),
+                  let end = textView.position(from: start, offset: replaceRange.length),
                   let textRange = textView.textRange(from: start, to: end) else { return }
             textView.replace(textRange, withText: replacement)
 
-            if let newStart = textView.position(from: textView.beginningOfDocument, offset: innerSelection.location),
-               let newEnd = textView.position(from: newStart, offset: innerSelection.length) {
+            if let newStart = textView.position(from: textView.beginningOfDocument, offset: newSelection.location),
+               let newEnd = textView.position(from: newStart, offset: newSelection.length) {
                 textView.selectedTextRange = textView.textRange(from: newStart, to: newEnd)
             }
         }

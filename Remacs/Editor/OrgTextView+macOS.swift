@@ -170,11 +170,11 @@ struct OrgTextView: NSViewRepresentable {
                 return word.length > 0 ? word : nil
             })
 
-            let (replacement, innerSelection) = OrgEmphasisFormatting.wrap(range, in: text, with: emphasis)
-            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
-            textStorage.replaceCharacters(in: range, with: replacement)
+            let (replaceRange, replacement, newSelection) = OrgEmphasisFormatting.toggle(range, in: text, with: emphasis)
+            guard textView.shouldChangeText(in: replaceRange, replacementString: replacement) else { return }
+            textStorage.replaceCharacters(in: replaceRange, with: replacement)
             textView.didChangeText()
-            textView.setSelectedRange(innerSelection)
+            textView.setSelectedRange(newSelection)
         }
     }
 }
