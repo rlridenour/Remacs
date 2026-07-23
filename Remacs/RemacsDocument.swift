@@ -16,7 +16,7 @@ nonisolated struct RemacsDocument: FileDocument {
     }
 
     static let readableContentTypes = [
-        UTType(exportedAs: "com.rlridenour.remacs.org")
+        UTType(importedAs: "org.orgmode")
     ]
 
     init(configuration: ReadConfiguration) throws {

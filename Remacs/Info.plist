@@ -11,13 +11,13 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.rlridenour.remacs.org</string>
+				<string>org.orgmode</string>
 			</array>
 			<key>NSUbiquitousDocumentUserActivityType</key>
 			<string>$(PRODUCT_BUNDLE_IDENTIFIER).orgdocument</string>
 		</dict>
 	</array>
-	<key>UTExportedTypeDeclarations</key>
+	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
 			<key>UTTypeConformsTo</key>
@@ -27,7 +27,7 @@
 			<key>UTTypeDescription</key>
 			<string>Org Mode Document</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.rlridenour.remacs.org</string>
+			<string>org.orgmode</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
