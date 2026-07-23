@@ -11,12 +11,12 @@ import UniformTypeIdentifiers
 nonisolated struct RemacsDocument: FileDocument {
     var text: String
 
-    init(text: String = "Hello, world!") {
+    init(text: String = "* ") {
         self.text = text
     }
 
     static let readableContentTypes = [
-        UTType(importedAs: "com.example.plain-text")
+        UTType(exportedAs: "com.rlridenour.remacs.org")
     ]
 
     init(configuration: ReadConfiguration) throws {

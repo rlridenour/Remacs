@@ -11,7 +11,7 @@ struct ContentView: View {
     @Binding var document: RemacsDocument
 
     var body: some View {
-        TextEditor(text: $document.text)
+        OrgTextView(text: $document.text)
     }
 }
 
