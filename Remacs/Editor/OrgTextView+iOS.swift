@@ -11,9 +11,16 @@ final class OrgUITextView: UITextView {
     /// Returns true if the tab was consumed (i.e. it toggled a fold); if not, a literal
     /// tab character is inserted, matching how a hardware keyboard's Tab key behaves.
     var onToggleFoldAtSelection: (() -> Bool)?
+    var onApplyEmphasis: ((OrgEmphasis) -> Void)?
 
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(handleTabCommand))]
+        [
+            UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(handleTabCommand)),
+            UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(handleBoldCommand)),
+            UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(handleItalicCommand)),
+            UIKeyCommand(input: "_", modifierFlags: .command, action: #selector(handleUnderlineCommand)),
+            UIKeyCommand(input: "=", modifierFlags: .command, action: #selector(handleCodeCommand))
+        ]
     }
 
     @objc private func handleTabCommand() {
@@ -21,6 +28,11 @@ final class OrgUITextView: UITextView {
             insertText("\t")
         }
     }
+
+    @objc private func handleBoldCommand() { onApplyEmphasis?(.bold) }
+    @objc private func handleItalicCommand() { onApplyEmphasis?(.italic) }
+    @objc private func handleUnderlineCommand() { onApplyEmphasis?(.underline) }
+    @objc private func handleCodeCommand() { onApplyEmphasis?(.code) }
 }
 
 struct OrgTextView: UIViewRepresentable {
@@ -53,6 +65,9 @@ struct OrgTextView: UIViewRepresentable {
         textView.alwaysBounceVertical = true
         textView.onToggleFoldAtSelection = { [weak coordinator = context.coordinator] in
             coordinator?.toggleFoldAtSelection() ?? false
+        }
+        textView.onApplyEmphasis = { [weak coordinator = context.coordinator] emphasis in
+            coordinator?.applyEmphasis(emphasis)
         }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
@@ -97,6 +112,34 @@ struct OrgTextView: UIViewRepresentable {
                   headline.canFold else { return false }
             textStorage.toggleFold(for: headline)
             return true
+        }
+
+        func applyEmphasis(_ emphasis: OrgEmphasis) {
+            guard let textView, let textStorage else { return }
+            let text = textStorage.string as NSString
+            let selected = textView.selectedRange
+            guard let range = OrgEmphasisFormatting.targetRange(selectedRange: selected, in: text, wordRangeProvider: {
+                wordRange(in: textView, at: selected.location)
+            }) else { return }
+
+            let (replacement, innerSelection) = OrgEmphasisFormatting.wrap(range, in: text, with: emphasis)
+            guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+                  let end = textView.position(from: start, offset: range.length),
+                  let textRange = textView.textRange(from: start, to: end) else { return }
+            textView.replace(textRange, withText: replacement)
+
+            if let newStart = textView.position(from: textView.beginningOfDocument, offset: innerSelection.location),
+               let newEnd = textView.position(from: newStart, offset: innerSelection.length) {
+                textView.selectedTextRange = textView.textRange(from: newStart, to: newEnd)
+            }
+        }
+
+        private func wordRange(in textView: UITextView, at index: Int) -> NSRange? {
+            guard let position = textView.position(from: textView.beginningOfDocument, offset: index),
+                  let range = textView.tokenizer.rangeEnclosingPosition(position, with: .word, inDirection: UITextDirection(rawValue: UITextStorageDirection.forward.rawValue)) else { return nil }
+            let start = textView.offset(from: textView.beginningOfDocument, to: range.start)
+            let length = textView.offset(from: range.start, to: range.end)
+            return NSRange(location: start, length: length)
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {

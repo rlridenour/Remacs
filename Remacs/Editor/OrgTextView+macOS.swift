@@ -9,6 +9,7 @@ import SwiftUI
 
 final class OrgNSTextView: NSTextView {
     var onToggleFold: ((Int) -> Void)?
+    var onApplyEmphasis: ((OrgEmphasis) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 1, let headlineStart = headlineStarCharacterIndex(for: event) {
@@ -19,6 +20,11 @@ final class OrgNSTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if let emphasis = OrgEmphasis(commandKeyEvent: event) {
+            onApplyEmphasis?(emphasis)
+            return
+        }
+
         let isPlainTab = event.keyCode == 48 && event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty
         if isPlainTab,
            let textStorage = textStorage as? OrgTextStorage,
@@ -40,6 +46,23 @@ final class OrgNSTextView: NSTextView {
         guard let headline = textStorage.headline(atCharacterIndex: charIndex),
               charIndex < headline.lineStart + headline.level else { return nil }
         return headline.lineStart
+    }
+}
+
+private extension OrgEmphasis {
+    /// Maps the emphasis keyboard shortcuts (Command-B/I/_/=) to their marker. Command-_
+    /// arrives as Shift lowering "-" to "_", so charactersIgnoringModifiers already reflects it.
+    init?(commandKeyEvent event: NSEvent) {
+        guard event.modifierFlags.contains(.command),
+              !event.modifierFlags.contains(.option),
+              !event.modifierFlags.contains(.control) else { return nil }
+        switch event.charactersIgnoringModifiers {
+        case "b": self = .bold
+        case "i": self = .italic
+        case "_": self = .underline
+        case "=": self = .code
+        default: return nil
+        }
     }
 }
 
@@ -76,6 +99,9 @@ struct OrgTextView: NSViewRepresentable {
         textView.font = PlatformFont.orgBody
         textView.onToggleFold = { [weak coordinator = context.coordinator] index in
             coordinator?.toggleFold(atCharacterIndex: index)
+        }
+        textView.onApplyEmphasis = { [weak coordinator = context.coordinator] emphasis in
+            coordinator?.applyEmphasis(emphasis)
         }
 
         let scrollView = NSScrollView()
@@ -125,6 +151,23 @@ struct OrgTextView: NSViewRepresentable {
         func toggleFold(atCharacterIndex index: Int) {
             guard let textStorage, let headline = textStorage.headline(atCharacterIndex: index) else { return }
             textStorage.toggleFold(for: headline)
+        }
+
+        func applyEmphasis(_ emphasis: OrgEmphasis) {
+            guard let textView, let textStorage else { return }
+            let text = textStorage.string as NSString
+            let selected = textView.selectedRange()
+            guard let range = OrgEmphasisFormatting.targetRange(selectedRange: selected, in: text, wordRangeProvider: {
+                let proposed = NSRange(location: selected.location, length: 0)
+                let word = textView.selectionRange(forProposedRange: proposed, granularity: .selectByWord)
+                return word.length > 0 ? word : nil
+            }) else { return }
+
+            let (replacement, innerSelection) = OrgEmphasisFormatting.wrap(range, in: text, with: emphasis)
+            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+            textStorage.replaceCharacters(in: range, with: replacement)
+            textView.didChangeText()
+            textView.setSelectedRange(innerSelection)
         }
     }
 }
