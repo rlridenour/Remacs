@@ -118,9 +118,9 @@ struct OrgTextView: UIViewRepresentable {
             guard let textView, let textStorage else { return }
             let text = textStorage.string as NSString
             let selected = textView.selectedRange
-            guard let range = OrgEmphasisFormatting.targetRange(selectedRange: selected, in: text, wordRangeProvider: {
+            let range = OrgEmphasisFormatting.targetRange(selectedRange: selected, in: text, wordRangeProvider: {
                 wordRange(in: textView, at: selected.location)
-            }) else { return }
+            })
 
             let (replacement, innerSelection) = OrgEmphasisFormatting.wrap(range, in: text, with: emphasis)
             guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),

@@ -17,14 +17,18 @@ enum OrgEmphasis: String {
 
 enum OrgEmphasisFormatting {
     /// Resolves the range of text a shortcut should wrap: the current selection if
-    /// non-empty, otherwise the word under the cursor (via `wordRangeProvider`). Returns
-    /// `nil` if there's no selection and the cursor isn't on a word.
-    static func targetRange(selectedRange: NSRange, in text: NSString, wordRangeProvider: () -> NSRange?) -> NSRange? {
+    /// non-empty, otherwise the word under the cursor (via `wordRangeProvider`). If
+    /// there's no selection and the cursor isn't on a word, returns a zero-length range
+    /// at the cursor so the caller inserts an empty marker pair there instead.
+    static func targetRange(selectedRange: NSRange, in text: NSString, wordRangeProvider: () -> NSRange?) -> NSRange {
         if selectedRange.length > 0 { return selectedRange }
-        guard let wordRange = wordRangeProvider(), wordRange.length > 0 else { return nil }
-        let content = text.substring(with: wordRange)
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return wordRange
+        if let wordRange = wordRangeProvider(), wordRange.length > 0 {
+            let content = text.substring(with: wordRange)
+            if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return wordRange
+            }
+        }
+        return NSRange(location: selectedRange.location, length: 0)
     }
 
     /// Wraps `range` with the emphasis marker, returning the replacement text and the

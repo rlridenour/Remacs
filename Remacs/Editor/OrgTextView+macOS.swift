@@ -157,11 +157,11 @@ struct OrgTextView: NSViewRepresentable {
             guard let textView, let textStorage else { return }
             let text = textStorage.string as NSString
             let selected = textView.selectedRange()
-            guard let range = OrgEmphasisFormatting.targetRange(selectedRange: selected, in: text, wordRangeProvider: {
+            let range = OrgEmphasisFormatting.targetRange(selectedRange: selected, in: text, wordRangeProvider: {
                 let proposed = NSRange(location: selected.location, length: 0)
                 let word = textView.selectionRange(forProposedRange: proposed, granularity: .selectByWord)
                 return word.length > 0 ? word : nil
-            }) else { return }
+            })
 
             let (replacement, innerSelection) = OrgEmphasisFormatting.wrap(range, in: text, with: emphasis)
             guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
