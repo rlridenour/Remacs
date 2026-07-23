@@ -24,12 +24,7 @@ final class OrgTextStorage: NSTextStorage {
     private let backingStore = NSMutableAttributedString()
     private(set) var headlines: [OrgHeadline] = []
 
-    var foldedHeadlineStarts: Set<Int> = [] {
-        didSet {
-            guard oldValue != foldedHeadlineStarts else { return }
-            applyFoldingAttributes()
-        }
-    }
+    private(set) var foldedHeadlineStarts: Set<Int> = []
 
     override var string: String { backingStore.string }
 
@@ -77,21 +72,32 @@ final class OrgTextStorage: NSTextStorage {
         applyFoldingAttributes()
     }
 
+    /// Refreshes the `.orgFolded` attribute on the backing store to match `foldedHeadlineStarts`.
+    /// Safe to call from within `processEditing()` since it only touches the private backing
+    /// store directly and never talks to the layout manager.
     private func applyFoldingAttributes() {
         let length = backingStore.length
         guard length > 0 else { return }
         let fullRange = NSRange(location: 0, length: length)
         backingStore.removeAttribute(.orgFolded, range: fullRange)
-        if !foldedHeadlineStarts.isEmpty {
-            for headline in headlines where foldedHeadlineStarts.contains(headline.lineStart) {
-                guard headline.canFold else { continue }
-                let range = NSRange(location: headline.lineEnd, length: headline.bodyEnd - headline.lineEnd)
-                backingStore.addAttribute(.orgFolded, value: true, range: range)
-            }
+        guard !foldedHeadlineStarts.isEmpty else { return }
+        for headline in headlines where foldedHeadlineStarts.contains(headline.lineStart) {
+            guard headline.canFold else { continue }
+            let range = NSRange(location: headline.lineEnd, length: headline.bodyEnd - headline.lineEnd)
+            backingStore.addAttribute(.orgFolded, value: true, range: range)
         }
-        // Attribute mutations on `backingStore` alone don't notify the layout manager, and
-        // the `.orgFolded` glyph-hiding is baked in at glyph-generation time, so folding
-        // toggled outside of a text edit needs an explicit invalidation to take effect.
+    }
+
+    /// Forces the layout manager to regenerate glyphs so a fold toggled outside of a text
+    /// edit actually collapses on screen (the `.orgFolded` glyph-hiding is baked in at glyph
+    /// generation time). Must only be called from a top-level event handler (e.g. Tab/tap),
+    /// never from within `processEditing()`/`replaceCharacters` -- calling these layout
+    /// manager APIs before the layout manager has been told about a pending edit raises an
+    /// internal-consistency exception.
+    private func invalidateDisplayForFolding() {
+        let length = backingStore.length
+        guard length > 0 else { return }
+        let fullRange = NSRange(location: 0, length: length)
         for layoutManager in layoutManagers {
             layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
             layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
@@ -104,14 +110,11 @@ final class OrgTextStorage: NSTextStorage {
     private func remapFoldedHeadlines(editedRange: NSRange, delta: Int) {
         guard !foldedHeadlineStarts.isEmpty else { return }
         let editEnd = editedRange.location + editedRange.length
-        let remapped: Set<Int> = Set(foldedHeadlineStarts.compactMap { start in
+        foldedHeadlineStarts = Set(foldedHeadlineStarts.compactMap { start in
             if start >= editEnd { return start + delta }
             if start >= editedRange.location { return nil }
             return start
         })
-        if remapped != foldedHeadlineStarts {
-            foldedHeadlineStarts = remapped
-        }
     }
 
     // MARK: - Queries
@@ -124,6 +127,8 @@ final class OrgTextStorage: NSTextStorage {
         foldedHeadlineStarts.contains(headline.lineStart)
     }
 
+    /// Toggles folding for `headline`. Must be called from a top-level event handler
+    /// (e.g. Tab key or tap gesture), not from within a text-editing transaction.
     func toggleFold(for headline: OrgHeadline) {
         guard headline.canFold else { return }
         if foldedHeadlineStarts.contains(headline.lineStart) {
@@ -131,5 +136,7 @@ final class OrgTextStorage: NSTextStorage {
         } else {
             foldedHeadlineStarts.insert(headline.lineStart)
         }
+        applyFoldingAttributes()
+        invalidateDisplayForFolding()
     }
 }
