@@ -136,11 +136,19 @@ struct OrgTextView: UIViewRepresentable {
         }
 
         private func wordRange(in textView: UITextView, at index: Int) -> NSRange? {
-            guard let position = textView.position(from: textView.beginningOfDocument, offset: index),
-                  let range = textView.tokenizer.rangeEnclosingPosition(position, with: .word, inDirection: UITextDirection(rawValue: UITextStorageDirection.forward.rawValue)) else { return nil }
-            let start = textView.offset(from: textView.beginningOfDocument, to: range.start)
-            let length = textView.offset(from: range.start, to: range.end)
-            return NSRange(location: start, length: length)
+            guard let position = textView.position(from: textView.beginningOfDocument, offset: index) else { return nil }
+            // A cursor sitting right after a word (including at the end of the document) has
+            // nothing ahead of it, so the forward direction alone misses the common case of
+            // wrapping a word right after typing it -- fall back to backward in that case.
+            let directions: [UITextStorageDirection] = [.forward, .backward]
+            for direction in directions {
+                if let range = textView.tokenizer.rangeEnclosingPosition(position, with: .word, inDirection: UITextDirection(rawValue: direction.rawValue)) {
+                    let start = textView.offset(from: textView.beginningOfDocument, to: range.start)
+                    let length = textView.offset(from: range.start, to: range.end)
+                    return NSRange(location: start, length: length)
+                }
+            }
+            return nil
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
