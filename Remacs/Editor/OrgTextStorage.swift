@@ -82,11 +82,20 @@ final class OrgTextStorage: NSTextStorage {
         guard length > 0 else { return }
         let fullRange = NSRange(location: 0, length: length)
         backingStore.removeAttribute(.orgFolded, range: fullRange)
-        guard !foldedHeadlineStarts.isEmpty else { return }
-        for headline in headlines where foldedHeadlineStarts.contains(headline.lineStart) {
-            guard headline.canFold else { continue }
-            let range = NSRange(location: headline.lineEnd, length: headline.bodyEnd - headline.lineEnd)
-            backingStore.addAttribute(.orgFolded, value: true, range: range)
+        if !foldedHeadlineStarts.isEmpty {
+            for headline in headlines where foldedHeadlineStarts.contains(headline.lineStart) {
+                guard headline.canFold else { continue }
+                let range = NSRange(location: headline.lineEnd, length: headline.bodyEnd - headline.lineEnd)
+                backingStore.addAttribute(.orgFolded, value: true, range: range)
+            }
+        }
+        // Attribute mutations on `backingStore` alone don't notify the layout manager, and
+        // the `.orgFolded` glyph-hiding is baked in at glyph-generation time, so folding
+        // toggled outside of a text edit needs an explicit invalidation to take effect.
+        for layoutManager in layoutManagers {
+            layoutManager.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
+            layoutManager.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+            layoutManager.invalidateDisplay(forCharacterRange: fullRange)
         }
     }
 
