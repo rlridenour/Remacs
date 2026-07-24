@@ -177,7 +177,7 @@ enum OrgSyntaxHighlighter {
         for regex in [dashBulletRegex, starBulletRegex, numberedListRegex] {
             regex.enumerateMatches(in: text as String, range: fullRange) { match, _, _ in
                 guard let match, !isExcluded(match.range) else { return }
-                runs.append((match.range, [.foregroundColor: PlatformColor.orgSecondaryText]))
+                runs.append((match.range, [.foregroundColor: PlatformColor.orgText]))
             }
         }
 

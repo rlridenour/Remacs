@@ -91,7 +91,7 @@ struct OrgTextView: UIViewRepresentable {
         textView.smartInsertDeleteType = .no
         textView.font = PlatformFont.orgBody
         textView.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        textView.backgroundColor = .clear
+        textView.backgroundColor = .orgBackground
         textView.alwaysBounceVertical = true
         textView.onToggleFoldAtSelection = { [weak coordinator = context.coordinator] in
             coordinator?.toggleFoldAtSelection() ?? false

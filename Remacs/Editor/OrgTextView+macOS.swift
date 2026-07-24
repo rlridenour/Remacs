@@ -143,6 +143,7 @@ struct OrgTextView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = [NSView.AutoresizingMask.width]
         textView.font = PlatformFont.orgBody
+        textView.backgroundColor = .orgBackground
         textView.onToggleFold = { [weak coordinator = context.coordinator] index in
             coordinator?.toggleFold(atCharacterIndex: index)
         }
