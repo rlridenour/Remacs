@@ -66,8 +66,9 @@ final class OrgUITextView: UITextView {
 
 struct OrgTextView: UIViewRepresentable {
     @Binding var text: String
+    let controller: OrgTextViewController
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, controller: controller) }
 
     func makeUIView(context: Context) -> UITextView {
         let textStorage = OrgTextStorage()
@@ -110,6 +111,15 @@ struct OrgTextView: UIViewRepresentable {
         textView.onPromoteHeadline = { [weak coordinator = context.coordinator] in
             coordinator?.promoteHeadline() ?? false
         }
+        controller.selectHandler = { [weak textView] range in
+            guard let textView else { return }
+            textView.selectedRange = range
+            textView.scrollRangeToVisible(range)
+            textView.becomeFirstResponder()
+        }
+        controller.replaceHandler = { [weak coordinator = context.coordinator] range, replacement in
+            coordinator?.replaceText(in: range, with: replacement) ?? false
+        }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         tap.delegate = context.coordinator
@@ -126,17 +136,23 @@ struct OrgTextView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var text: Binding<String>
+        let controller: OrgTextViewController
         weak var textView: UITextView?
         weak var textStorage: OrgTextStorage?
         let foldingDelegate = OrgFoldingLayoutManagerDelegate()
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, controller: OrgTextViewController) {
             self.text = text
+            self.controller = controller
         }
 
         func textViewDidChange(_ textView: UITextView) {
             text.wrappedValue = textView.text
             textView.scrollRangeToVisible(textView.selectedRange)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            controller.updateSelection(textView.selectedRange)
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -221,6 +237,13 @@ struct OrgTextView: UIViewRepresentable {
                   let headline = textStorage.headline(atCharacterIndex: textView.selectedRange.location) else { return false }
             guard let action = OrgHeadlineIndent.promote(headline: headline, cursorLocation: textView.selectedRange.location) else { return false }
             return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Replaces `range` with `replacement`, selecting just past the new text -- used by
+        /// the find/replace bar, going through the same apply path as other edits.
+        func replaceText(in range: NSRange, with replacement: String) -> Bool {
+            let newSelection = NSRange(location: range.location, length: (replacement as NSString).length)
+            return apply(range, replacement, selecting: newSelection)
         }
 
         @discardableResult

@@ -111,8 +111,9 @@ private extension OrgEmphasis {
 
 struct OrgTextView: NSViewRepresentable {
     @Binding var text: String
+    let controller: OrgTextViewController
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, controller: controller) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let textStorage = OrgTextStorage()
@@ -163,6 +164,15 @@ struct OrgTextView: NSViewRepresentable {
         textView.onPromoteHeadline = { [weak coordinator = context.coordinator] in
             coordinator?.promoteHeadline() ?? false
         }
+        controller.selectHandler = { [weak textView] range in
+            guard let textView else { return }
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
+            textView.window?.makeFirstResponder(textView)
+        }
+        controller.replaceHandler = { [weak coordinator = context.coordinator] range, replacement in
+            coordinator?.replaceText(in: range, with: replacement) ?? false
+        }
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
@@ -182,12 +192,14 @@ struct OrgTextView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
+        let controller: OrgTextViewController
         weak var textView: OrgNSTextView?
         weak var textStorage: OrgTextStorage?
         let foldingDelegate = OrgFoldingLayoutManagerDelegate()
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, controller: OrgTextViewController) {
             self.text = text
+            self.controller = controller
         }
 
         func textDidChange(_ notification: Notification) {
@@ -198,6 +210,11 @@ struct OrgTextView: NSViewRepresentable {
             // caret visible" scrolling out of sync with the just-grown layout. Reassert
             // it explicitly so typing past the bottom of the window keeps scrolling.
             textView.scrollRangeToVisible(textView.selectedRange())
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView else { return }
+            controller.updateSelection(textView.selectedRange())
         }
 
         func updateExternalText(_ newValue: String) {
@@ -286,6 +303,13 @@ struct OrgTextView: NSViewRepresentable {
                   let headline = textStorage.headline(atCharacterIndex: textView.selectedRange().location) else { return false }
             guard let action = OrgHeadlineIndent.promote(headline: headline, cursorLocation: textView.selectedRange().location) else { return false }
             return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Replaces `range` with `replacement`, selecting just past the new text -- used by
+        /// the find/replace bar, going through the same undoable path as other edits.
+        func replaceText(in range: NSRange, with replacement: String) -> Bool {
+            let newSelection = NSRange(location: range.location, length: (replacement as NSString).length)
+            return apply(range, replacement, selecting: newSelection)
         }
 
         @discardableResult
