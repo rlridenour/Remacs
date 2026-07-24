@@ -13,12 +13,37 @@ final class OrgNSTextView: NSTextView {
     var onSmartReturn: (() -> Bool)?
     var onDemoteList: (() -> Bool)?
     var onPromoteList: (() -> Bool)?
+    var onDemoteHeadline: (() -> Bool)?
+    var onPromoteHeadline: (() -> Bool)?
 
     override func insertNewline(_ sender: Any?) {
         if selectedRange().length == 0, onSmartReturn?() == true {
             return
         }
         super.insertNewline(sender)
+    }
+
+    /// Option-Right normally moves the caret one word to the right. On a heading line,
+    /// it demotes the heading instead (matching Emacs org-mode's M-right).
+    override func moveWordRight(_ sender: Any?) {
+        if let textStorage = textStorage as? OrgTextStorage,
+           textStorage.headline(atCharacterIndex: selectedRange().location) != nil,
+           onDemoteHeadline?() == true {
+            return
+        }
+        super.moveWordRight(sender)
+    }
+
+    /// Option-Left normally moves the caret one word to the left. On a heading line, it
+    /// promotes the heading instead (matching Emacs org-mode's M-left), unless it's
+    /// already at the top level, in which case it falls back to the normal word move.
+    override func moveWordLeft(_ sender: Any?) {
+        if let textStorage = textStorage as? OrgTextStorage,
+           textStorage.headline(atCharacterIndex: selectedRange().location) != nil,
+           onPromoteHeadline?() == true {
+            return
+        }
+        super.moveWordLeft(sender)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -69,8 +94,7 @@ final class OrgNSTextView: NSTextView {
 }
 
 private extension OrgEmphasis {
-    /// Maps the emphasis keyboard shortcuts (Command-B/I/_/=) to their marker. Command-_
-    /// arrives as Shift lowering "-" to "_", so charactersIgnoringModifiers already reflects it.
+    /// Maps the emphasis keyboard shortcuts (Command-B/I/U/=) to their marker.
     init?(commandKeyEvent event: NSEvent) {
         guard event.modifierFlags.contains(.command),
               !event.modifierFlags.contains(.option),
@@ -78,7 +102,7 @@ private extension OrgEmphasis {
         switch event.charactersIgnoringModifiers {
         case "b": self = .bold
         case "i": self = .italic
-        case "_": self = .underline
+        case "u": self = .underline
         case "=": self = .code
         default: return nil
         }
@@ -132,6 +156,12 @@ struct OrgTextView: NSViewRepresentable {
         }
         textView.onPromoteList = { [weak coordinator = context.coordinator] in
             coordinator?.promoteList() ?? false
+        }
+        textView.onDemoteHeadline = { [weak coordinator = context.coordinator] in
+            coordinator?.demoteHeadline() ?? false
+        }
+        textView.onPromoteHeadline = { [weak coordinator = context.coordinator] in
+            coordinator?.promoteHeadline() ?? false
         }
 
         let scrollView = NSScrollView()
@@ -238,6 +268,23 @@ struct OrgTextView: NSViewRepresentable {
             guard let textView, let textStorage else { return false }
             let text = textStorage.string as NSString
             guard let action = OrgListIndent.promote(text: text, cursorLocation: textView.selectedRange().location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Adds one asterisk to the heading under the cursor.
+        func demoteHeadline() -> Bool {
+            guard let textView, let textStorage,
+                  let headline = textStorage.headline(atCharacterIndex: textView.selectedRange().location) else { return false }
+            let action = OrgHeadlineIndent.demote(headline: headline, cursorLocation: textView.selectedRange().location)
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Removes one asterisk from the heading under the cursor. Returns false if the
+        /// heading is already at the top level, so the caller falls back to a normal word move.
+        func promoteHeadline() -> Bool {
+            guard let textView, let textStorage,
+                  let headline = textStorage.headline(atCharacterIndex: textView.selectedRange().location) else { return false }
+            guard let action = OrgHeadlineIndent.promote(headline: headline, cursorLocation: textView.selectedRange().location) else { return false }
             return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
         }
 

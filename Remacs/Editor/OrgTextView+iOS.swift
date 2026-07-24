@@ -14,16 +14,35 @@ final class OrgUITextView: UITextView {
     var onApplyEmphasis: ((OrgEmphasis) -> Void)?
     var onDemoteList: (() -> Bool)?
     var onPromoteList: (() -> Bool)?
+    var onDemoteHeadline: (() -> Bool)?
+    var onPromoteHeadline: (() -> Bool)?
 
     override var keyCommands: [UIKeyCommand]? {
-        [
+        var commands = [
             UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(handleTabCommand)),
             UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(handlePromoteCommand)),
             UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(handleBoldCommand)),
             UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(handleItalicCommand)),
-            UIKeyCommand(input: "_", modifierFlags: .command, action: #selector(handleUnderlineCommand)),
+            UIKeyCommand(input: "u", modifierFlags: .command, action: #selector(handleUnderlineCommand)),
             UIKeyCommand(input: "=", modifierFlags: .command, action: #selector(handleCodeCommand))
         ]
+
+        // Option-Right/Left normally move the caret by word. On a heading line they
+        // instead demote/promote it (matching Emacs org-mode's M-right/M-left) -- only
+        // claim those key combos while on a heading, so word movement is untouched
+        // everywhere else, and promotion still falls back to word movement at the top level.
+        if let headline = headlineAtSelection {
+            commands.append(UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: .alternate, action: #selector(handleDemoteHeadlineCommand)))
+            if headline.level > 1 {
+                commands.append(UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: .alternate, action: #selector(handlePromoteHeadlineCommand)))
+            }
+        }
+
+        return commands
+    }
+
+    private var headlineAtSelection: OrgHeadline? {
+        (textStorage as? OrgTextStorage)?.headline(atCharacterIndex: selectedRange.location)
     }
 
     @objc private func handleTabCommand() {
@@ -35,6 +54,9 @@ final class OrgUITextView: UITextView {
     @objc private func handlePromoteCommand() {
         _ = onPromoteList?()
     }
+
+    @objc private func handleDemoteHeadlineCommand() { _ = onDemoteHeadline?() }
+    @objc private func handlePromoteHeadlineCommand() { _ = onPromoteHeadline?() }
 
     @objc private func handleBoldCommand() { onApplyEmphasis?(.bold) }
     @objc private func handleItalicCommand() { onApplyEmphasis?(.italic) }
@@ -81,6 +103,12 @@ struct OrgTextView: UIViewRepresentable {
         }
         textView.onPromoteList = { [weak coordinator = context.coordinator] in
             coordinator?.promoteList() ?? false
+        }
+        textView.onDemoteHeadline = { [weak coordinator = context.coordinator] in
+            coordinator?.demoteHeadline() ?? false
+        }
+        textView.onPromoteHeadline = { [weak coordinator = context.coordinator] in
+            coordinator?.promoteHeadline() ?? false
         }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
@@ -175,6 +203,23 @@ struct OrgTextView: UIViewRepresentable {
             guard let textView, let textStorage else { return false }
             let text = textStorage.string as NSString
             guard let action = OrgListIndent.promote(text: text, cursorLocation: textView.selectedRange.location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Adds one asterisk to the heading under the cursor.
+        func demoteHeadline() -> Bool {
+            guard let textView, let textStorage,
+                  let headline = textStorage.headline(atCharacterIndex: textView.selectedRange.location) else { return false }
+            let action = OrgHeadlineIndent.demote(headline: headline, cursorLocation: textView.selectedRange.location)
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Removes one asterisk from the heading under the cursor. Returns false if the
+        /// heading is already at the top level.
+        func promoteHeadline() -> Bool {
+            guard let textView, let textStorage,
+                  let headline = textStorage.headline(atCharacterIndex: textView.selectedRange.location) else { return false }
+            guard let action = OrgHeadlineIndent.promote(headline: headline, cursorLocation: textView.selectedRange.location) else { return false }
             return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
         }
 
