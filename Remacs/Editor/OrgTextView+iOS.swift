@@ -12,10 +12,13 @@ final class OrgUITextView: UITextView {
     /// tab character is inserted, matching how a hardware keyboard's Tab key behaves.
     var onToggleFoldAtSelection: (() -> Bool)?
     var onApplyEmphasis: ((OrgEmphasis) -> Void)?
+    var onDemoteList: (() -> Bool)?
+    var onPromoteList: (() -> Bool)?
 
     override var keyCommands: [UIKeyCommand]? {
         [
             UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(handleTabCommand)),
+            UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(handlePromoteCommand)),
             UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(handleBoldCommand)),
             UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(handleItalicCommand)),
             UIKeyCommand(input: "_", modifierFlags: .command, action: #selector(handleUnderlineCommand)),
@@ -24,9 +27,13 @@ final class OrgUITextView: UITextView {
     }
 
     @objc private func handleTabCommand() {
-        if onToggleFoldAtSelection?() != true {
-            insertText("\t")
-        }
+        if onToggleFoldAtSelection?() == true { return }
+        if onDemoteList?() == true { return }
+        insertText("\t")
+    }
+
+    @objc private func handlePromoteCommand() {
+        _ = onPromoteList?()
     }
 
     @objc private func handleBoldCommand() { onApplyEmphasis?(.bold) }
@@ -69,6 +76,12 @@ struct OrgTextView: UIViewRepresentable {
         textView.onApplyEmphasis = { [weak coordinator = context.coordinator] emphasis in
             coordinator?.applyEmphasis(emphasis)
         }
+        textView.onDemoteList = { [weak coordinator = context.coordinator] in
+            coordinator?.demoteList() ?? false
+        }
+        textView.onPromoteList = { [weak coordinator = context.coordinator] in
+            coordinator?.promoteList() ?? false
+        }
 
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
         tap.delegate = context.coordinator
@@ -103,21 +116,20 @@ struct OrgTextView: UIViewRepresentable {
             let fullText = textStorage.string as NSString
             let cursorLocation = range.location
             let lookupIndex = cursorLocation < fullText.length ? cursorLocation : max(cursorLocation - 1, 0)
-            guard let action = OrgHeadlineReturn.action(
+
+            if let action = OrgHeadlineReturn.action(
                 headline: textStorage.headline(atCharacterIndex: lookupIndex),
                 cursorLocation: cursorLocation,
                 text: fullText
-            ) else { return true }
-
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: action.replaceRange.location),
-                  let end = textView.position(from: start, offset: action.replaceRange.length),
-                  let textRange = textView.textRange(from: start, to: end) else { return true }
-            textView.replace(textRange, withText: action.replacement)
-
-            if let cursorPosition = textView.position(from: textView.beginningOfDocument, offset: action.newCursorLocation) {
-                textView.selectedTextRange = textView.textRange(from: cursorPosition, to: cursorPosition)
+            ) {
+                apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+                return false
             }
-            return false
+            if let action = OrgListReturn.action(text: fullText, cursorLocation: cursorLocation) {
+                apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+                return false
+            }
+            return true
         }
 
         func updateExternalText(_ newValue: String) {
@@ -146,15 +158,44 @@ struct OrgTextView: UIViewRepresentable {
             })
 
             let (replaceRange, replacement, newSelection) = OrgEmphasisFormatting.toggle(range, in: text, with: emphasis)
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: replaceRange.location),
-                  let end = textView.position(from: start, offset: replaceRange.length),
-                  let textRange = textView.textRange(from: start, to: end) else { return }
+            apply(replaceRange, replacement, selecting: newSelection)
+        }
+
+        /// Adds one indentation step to the list item under the cursor. Returns true if
+        /// handled, false if the caller should fall back to inserting a literal tab.
+        func demoteList() -> Bool {
+            guard let textView, let textStorage else { return false }
+            let text = textStorage.string as NSString
+            guard let action = OrgListIndent.demote(text: text, cursorLocation: textView.selectedRange.location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Removes one indentation step from the list item under the cursor.
+        func promoteList() -> Bool {
+            guard let textView, let textStorage else { return false }
+            let text = textStorage.string as NSString
+            guard let action = OrgListIndent.promote(text: text, cursorLocation: textView.selectedRange.location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        @discardableResult
+        private func apply(_ range: NSRange, _ replacement: String, selecting newSelection: NSRange) -> Bool {
+            guard let textView,
+                  let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+                  let end = textView.position(from: start, offset: range.length),
+                  let textRange = textView.textRange(from: start, to: end) else { return false }
             textView.replace(textRange, withText: replacement)
 
             if let newStart = textView.position(from: textView.beginningOfDocument, offset: newSelection.location),
                let newEnd = textView.position(from: newStart, offset: newSelection.length) {
                 textView.selectedTextRange = textView.textRange(from: newStart, to: newEnd)
             }
+            return true
+        }
+
+        @discardableResult
+        private func apply(_ range: NSRange, _ replacement: String, selectingLocation location: Int) -> Bool {
+            apply(range, replacement, selecting: NSRange(location: location, length: 0))
         }
 
         private func wordRange(in textView: UITextView, at index: Int) -> NSRange? {

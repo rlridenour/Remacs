@@ -10,10 +10,12 @@ import SwiftUI
 final class OrgNSTextView: NSTextView {
     var onToggleFold: ((Int) -> Void)?
     var onApplyEmphasis: ((OrgEmphasis) -> Void)?
-    var onHeadlineReturn: (() -> Bool)?
+    var onSmartReturn: (() -> Bool)?
+    var onDemoteList: (() -> Bool)?
+    var onPromoteList: (() -> Bool)?
 
     override func insertNewline(_ sender: Any?) {
-        if selectedRange().length == 0, onHeadlineReturn?() == true {
+        if selectedRange().length == 0, onSmartReturn?() == true {
             return
         }
         super.insertNewline(sender)
@@ -33,13 +35,22 @@ final class OrgNSTextView: NSTextView {
             return
         }
 
-        let isPlainTab = event.keyCode == 48 && event.modifierFlags.intersection([.shift, .command, .option, .control]).isEmpty
-        if isPlainTab,
-           let textStorage = textStorage as? OrgTextStorage,
-           let headline = textStorage.headline(atCharacterIndex: selectedRange().location),
-           headline.canFold {
-            onToggleFold?(headline.lineStart)
-            return
+        let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+        let isTabKey = event.keyCode == 48
+        if isTabKey, modifiers.isEmpty {
+            if let textStorage = textStorage as? OrgTextStorage,
+               let headline = textStorage.headline(atCharacterIndex: selectedRange().location),
+               headline.canFold {
+                onToggleFold?(headline.lineStart)
+                return
+            }
+            if onDemoteList?() == true {
+                return
+            }
+        } else if isTabKey, modifiers == .shift {
+            if onPromoteList?() == true {
+                return
+            }
         }
         super.keyDown(with: event)
     }
@@ -113,8 +124,14 @@ struct OrgTextView: NSViewRepresentable {
         textView.onApplyEmphasis = { [weak coordinator = context.coordinator] emphasis in
             coordinator?.applyEmphasis(emphasis)
         }
-        textView.onHeadlineReturn = { [weak coordinator = context.coordinator] in
-            coordinator?.applyHeadlineReturn() ?? false
+        textView.onSmartReturn = { [weak coordinator = context.coordinator] in
+            coordinator?.applySmartReturn() ?? false
+        }
+        textView.onDemoteList = { [weak coordinator = context.coordinator] in
+            coordinator?.demoteList() ?? false
+        }
+        textView.onPromoteList = { [weak coordinator = context.coordinator] in
+            coordinator?.promoteList() ?? false
         }
 
         let scrollView = NSScrollView()
@@ -182,30 +199,61 @@ struct OrgTextView: NSViewRepresentable {
             })
 
             let (replaceRange, replacement, newSelection) = OrgEmphasisFormatting.toggle(range, in: text, with: emphasis)
-            guard textView.shouldChangeText(in: replaceRange, replacementString: replacement) else { return }
-            textStorage.replaceCharacters(in: replaceRange, with: replacement)
-            textView.didChangeText()
-            textView.setSelectedRange(newSelection)
+            apply(replaceRange, replacement, selecting: newSelection)
         }
 
-        /// Returns true if Return was handled specially (starting or clearing a heading),
-        /// false if the caller should fall back to inserting a plain newline.
-        func applyHeadlineReturn() -> Bool {
+        /// Returns true if Return was handled specially (starting or clearing a heading or
+        /// list item), false if the caller should fall back to inserting a plain newline.
+        func applySmartReturn() -> Bool {
             guard let textView, let textStorage else { return false }
             let text = textStorage.string as NSString
             let cursorLocation = textView.selectedRange().location
             let lookupIndex = cursorLocation < text.length ? cursorLocation : max(cursorLocation - 1, 0)
-            guard let action = OrgHeadlineReturn.action(
+
+            if let action = OrgHeadlineReturn.action(
                 headline: textStorage.headline(atCharacterIndex: lookupIndex),
                 cursorLocation: cursorLocation,
                 text: text
-            ) else { return false }
+            ) {
+                return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+            }
+            if let action = OrgListReturn.action(text: text, cursorLocation: cursorLocation) {
+                return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+            }
+            return false
+        }
 
-            guard textView.shouldChangeText(in: action.replaceRange, replacementString: action.replacement) else { return false }
-            textStorage.replaceCharacters(in: action.replaceRange, with: action.replacement)
+        /// Adds one indentation step to the list item under the cursor. Returns true if
+        /// handled, false if the caller should fall back to inserting a literal tab.
+        func demoteList() -> Bool {
+            guard let textView, let textStorage else { return false }
+            let text = textStorage.string as NSString
+            guard let action = OrgListIndent.demote(text: text, cursorLocation: textView.selectedRange().location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        /// Removes one indentation step from the list item under the cursor. Returns true
+        /// if handled, false otherwise.
+        func promoteList() -> Bool {
+            guard let textView, let textStorage else { return false }
+            let text = textStorage.string as NSString
+            guard let action = OrgListIndent.promote(text: text, cursorLocation: textView.selectedRange().location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+        }
+
+        @discardableResult
+        private func apply(_ range: NSRange, _ replacement: String, selecting newSelection: NSRange) -> Bool {
+            guard let textView, let textStorage else { return false }
+            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return false }
+            textStorage.replaceCharacters(in: range, with: replacement)
             textView.didChangeText()
-            textView.setSelectedRange(NSRange(location: action.newCursorLocation, length: 0))
+            textView.setSelectedRange(newSelection)
             return true
+        }
+
+        @discardableResult
+        private func apply(_ range: NSRange, _ replacement: String, selectingLocation location: Int) -> Bool {
+            apply(range, replacement, selecting: NSRange(location: location, length: 0))
         }
     }
 }
