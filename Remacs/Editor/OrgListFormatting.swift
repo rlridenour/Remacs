@@ -4,7 +4,7 @@
 //
 //  Shared (platform-agnostic) logic for list editing: continuing/clearing an item on
 //  Return (renumbering enumerated lists as needed), and demoting/promoting an item's
-//  indentation on Tab/Shift-Tab.
+//  indentation on Tab/Shift-Tab (renumbering enumerated lists across the level change).
 //
 
 import Foundation
@@ -49,13 +49,15 @@ enum OrgListFormatting {
 
     /// Renumbers the run of numbered-list siblings starting at `scanStart` (which must be
     /// the start of a line) that match `indentation` and `delimiter`, assigning them
-    /// sequential numbers beginning at `startNumber`. Returns the reconstructed lines and
-    /// the character offset just past the last one's content (or `scanStart` if none matched).
+    /// sequential numbers beginning at `startNumber`. Returns the reconstructed lines, the
+    /// character offset just past the last one's content (`nil` if none matched -- callers
+    /// must not extend their replacement range in that case), and the position right after
+    /// the matched run (`scanStart` itself if none matched) so callers can keep scanning.
     fileprivate static func renumberSiblings(
         text: NSString, from scanStart: Int, indentation: String, delimiter: Character, startNumber: Int
-    ) -> (lines: [String], runEnd: Int) {
+    ) -> (lines: [String], runEnd: Int?, nextScanLoc: Int) {
         var lines: [String] = []
-        var runEnd = scanStart
+        var runEnd: Int?
         var scanLoc = scanStart
         var expected = startNumber
         while scanLoc < text.length {
@@ -68,10 +70,34 @@ enum OrgListFormatting {
             lines.append(indentation + "\(expected)\(delimiter)" + sItem.spacing + sItem.content)
             runEnd = sContentsEnd
             expected += 1
-            guard sLineEnd < text.length else { break }
+            guard sLineEnd < text.length else { scanLoc = sLineEnd; break }
             scanLoc = sLineEnd
         }
-        return (lines, runEnd)
+        return (lines, runEnd, scanLoc)
+    }
+
+    /// Scans backward from just before `beforeLineStart` for the nearest preceding
+    /// numbered-list item at exactly `indentation`, skipping over any more deeply indented
+    /// (nested) lines along the way. Returns its number, or `nil` if there is none -- either
+    /// a shallower line or a non-list line was hit first, or `beforeLineStart` is the start
+    /// of the document.
+    fileprivate static func previousSiblingNumber(text: NSString, beforeLineStart: Int, indentation: String, delimiter: Character) -> Int? {
+        let targetIndentLength = (indentation as NSString).length
+        var loc = beforeLineStart - 1
+        while loc >= 0 {
+            var pLineStart = 0, pContentsEnd = 0
+            text.getLineStart(&pLineStart, end: nil, contentsEnd: &pContentsEnd, for: NSRange(location: loc, length: 0))
+            let pLineText = text.substring(with: NSRange(location: pLineStart, length: pContentsEnd - pLineStart))
+            guard let pItem = parse(pLineText) else { return nil }
+            let pIndentLength = (pItem.indentation as NSString).length
+            if pItem.indentation == indentation {
+                return pItem.delimiter == delimiter ? pItem.number : nil
+            }
+            guard pIndentLength > targetIndentLength else { return nil }
+            guard pLineStart > 0 else { return nil }
+            loc = pLineStart - 1
+        }
+        return nil
     }
 }
 
@@ -93,18 +119,16 @@ enum OrgListReturn {
         let lineText = text.substring(with: NSRange(location: lineStart, length: contentsEnd - lineStart))
         guard let item = OrgListFormatting.parse(lineText) else { return nil }
 
-        let scanStart = lineEnd
-
         if item.content.trimmingCharacters(in: .whitespaces).isEmpty {
             // Empty item -- clear it back to a plain, empty line, renumbering any
             // subsequent numbered siblings down to close the gap.
             var runEnd = contentsEnd
             var replacement = ""
             if let delimiter = item.delimiter, let number = item.number {
-                let (siblingLines, siblingRunEnd) = OrgListFormatting.renumberSiblings(
-                    text: text, from: scanStart, indentation: item.indentation, delimiter: delimiter, startNumber: number
+                let (siblingLines, siblingRunEnd, _) = OrgListFormatting.renumberSiblings(
+                    text: text, from: lineEnd, indentation: item.indentation, delimiter: delimiter, startNumber: number
                 )
-                if !siblingLines.isEmpty {
+                if let siblingRunEnd {
                     runEnd = siblingRunEnd
                     replacement = "\n" + siblingLines.joined(separator: "\n")
                 }
@@ -116,9 +140,10 @@ enum OrgListReturn {
         if let number = item.number, let delimiter = item.delimiter {
             // Numbered list -- start the next item, renumbering subsequent siblings up.
             let newItemLine = item.indentation + "\(number + 1)\(delimiter)" + item.spacing
-            let (siblingLines, runEnd) = OrgListFormatting.renumberSiblings(
-                text: text, from: scanStart, indentation: item.indentation, delimiter: delimiter, startNumber: number + 2
+            let (siblingLines, siblingRunEnd, _) = OrgListFormatting.renumberSiblings(
+                text: text, from: lineEnd, indentation: item.indentation, delimiter: delimiter, startNumber: number + 2
             )
+            let runEnd = siblingRunEnd ?? cursorLocation
             let replacement = "\n" + ([newItemLine] + siblingLines).joined(separator: "\n")
             let range = NSRange(location: cursorLocation, length: runEnd - cursorLocation)
             let newCursorLocation = cursorLocation + 1 + (newItemLine as NSString).length
@@ -142,29 +167,84 @@ enum OrgListIndent {
 
     private static let step = "  "
 
-    /// Adds one indentation step to the list item's line, wherever the cursor sits within it.
+    /// Adds one indentation step to the list item's line, wherever the cursor sits within
+    /// it. A numbered item becomes (or continues) a nested list at the deeper indentation,
+    /// and its old level's trailing siblings renumber down to close the gap it leaves.
     static func demote(text: NSString, cursorLocation: Int) -> Action? {
-        guard let (lineStart, _) = currentListLine(text: text, cursorLocation: cursorLocation) else { return nil }
-        let range = NSRange(location: lineStart, length: 0)
-        return Action(replaceRange: range, replacement: step, newCursorLocation: cursorLocation + (step as NSString).length)
+        guard let (lineStart, lineEnd, contentsEnd, item) = currentListLine(text: text, cursorLocation: cursorLocation) else { return nil }
+
+        guard let number = item.number, let delimiter = item.delimiter else {
+            let range = NSRange(location: lineStart, length: 0)
+            return Action(replaceRange: range, replacement: step, newCursorLocation: cursorLocation + (step as NSString).length)
+        }
+
+        let newIndentation = item.indentation + step
+        let newNumber = (OrgListFormatting.previousSiblingNumber(
+            text: text, beforeLineStart: lineStart, indentation: newIndentation, delimiter: delimiter
+        ) ?? 0) + 1
+        let newLine = newIndentation + "\(newNumber)\(delimiter)" + item.spacing + item.content
+
+        let (oldLevelSiblings, oldLevelRunEnd, _) = OrgListFormatting.renumberSiblings(
+            text: text, from: lineEnd, indentation: item.indentation, delimiter: delimiter, startNumber: number
+        )
+        let runEnd = oldLevelRunEnd ?? contentsEnd
+
+        let replacement = ([newLine] + oldLevelSiblings).joined(separator: "\n")
+        let range = NSRange(location: lineStart, length: runEnd - lineStart)
+        let newCursorLocation = shiftedCursor(cursorLocation, lineStart: lineStart, oldLineLength: contentsEnd - lineStart, newLine: newLine, content: item.content)
+        return Action(replaceRange: range, replacement: replacement, newCursorLocation: newCursorLocation)
     }
 
     /// Removes up to one indentation step from the list item's line, wherever the cursor
-    /// sits within it. Returns `nil` if the item has no indentation left to remove.
+    /// sits within it. A numbered item rejoins the shallower list at its new position
+    /// (renumbering that level's trailing siblings up to make room), and its old (deeper)
+    /// level's trailing siblings renumber down to close the gap it leaves. Returns `nil` if
+    /// the item has no indentation left to remove.
     static func promote(text: NSString, cursorLocation: Int) -> Action? {
-        guard let (lineStart, item) = currentListLine(text: text, cursorLocation: cursorLocation) else { return nil }
+        guard let (lineStart, lineEnd, contentsEnd, item) = currentListLine(text: text, cursorLocation: cursorLocation) else { return nil }
         let removable = min((item.indentation as NSString).length, (step as NSString).length)
         guard removable > 0 else { return nil }
-        let range = NSRange(location: lineStart, length: removable)
-        let newCursorLocation = max(lineStart, cursorLocation - removable)
-        return Action(replaceRange: range, replacement: "", newCursorLocation: newCursorLocation)
+        let newIndentation = String(item.indentation.dropLast(removable))
+
+        guard let number = item.number, let delimiter = item.delimiter else {
+            let range = NSRange(location: lineStart, length: removable)
+            let newCursorLocation = max(lineStart, cursorLocation - removable)
+            return Action(replaceRange: range, replacement: "", newCursorLocation: newCursorLocation)
+        }
+
+        let newNumber = (OrgListFormatting.previousSiblingNumber(
+            text: text, beforeLineStart: lineStart, indentation: newIndentation, delimiter: delimiter
+        ) ?? 0) + 1
+        let newLine = newIndentation + "\(newNumber)\(delimiter)" + item.spacing + item.content
+
+        let (oldLevelSiblings, oldLevelRunEnd, afterOldLevel) = OrgListFormatting.renumberSiblings(
+            text: text, from: lineEnd, indentation: item.indentation, delimiter: delimiter, startNumber: number
+        )
+        let (targetLevelSiblings, targetLevelRunEnd, _) = OrgListFormatting.renumberSiblings(
+            text: text, from: afterOldLevel, indentation: newIndentation, delimiter: delimiter, startNumber: newNumber + 1
+        )
+        let runEnd = targetLevelRunEnd ?? oldLevelRunEnd ?? contentsEnd
+
+        let replacement = ([newLine] + oldLevelSiblings + targetLevelSiblings).joined(separator: "\n")
+        let range = NSRange(location: lineStart, length: runEnd - lineStart)
+        let newCursorLocation = shiftedCursor(cursorLocation, lineStart: lineStart, oldLineLength: contentsEnd - lineStart, newLine: newLine, content: item.content)
+        return Action(replaceRange: range, replacement: replacement, newCursorLocation: newCursorLocation)
     }
 
-    private static func currentListLine(text: NSString, cursorLocation: Int) -> (lineStart: Int, item: OrgListLine)? {
-        var lineStart = 0, contentsEnd = 0
-        text.getLineStart(&lineStart, end: nil, contentsEnd: &contentsEnd, for: NSRange(location: cursorLocation, length: 0))
+    /// Preserves the cursor's position within the item's (unchanged) content when its
+    /// marker/indentation prefix changes length, clamped to not land before the new line starts.
+    private static func shiftedCursor(_ cursorLocation: Int, lineStart: Int, oldLineLength: Int, newLine: String, content: String) -> Int {
+        let contentLength = (content as NSString).length
+        let oldPrefixLength = oldLineLength - contentLength
+        let newPrefixLength = (newLine as NSString).length - contentLength
+        return max(lineStart, cursorLocation + (newPrefixLength - oldPrefixLength))
+    }
+
+    private static func currentListLine(text: NSString, cursorLocation: Int) -> (lineStart: Int, lineEnd: Int, contentsEnd: Int, item: OrgListLine)? {
+        var lineStart = 0, lineEnd = 0, contentsEnd = 0
+        text.getLineStart(&lineStart, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: cursorLocation, length: 0))
         let lineText = text.substring(with: NSRange(location: lineStart, length: contentsEnd - lineStart))
         guard let item = OrgListFormatting.parse(lineText) else { return nil }
-        return (lineStart, item)
+        return (lineStart, lineEnd, contentsEnd, item)
     }
 }
