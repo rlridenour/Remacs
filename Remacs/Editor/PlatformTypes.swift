@@ -53,39 +53,36 @@ extension PlatformColor {
         self.init(red: red, green: green, blue: blue, alpha: alpha)
     }
 
-    static var orgBackground: PlatformColor { PlatformColor(hex: 0xFFFCF0) }
-
-    static var orgText: PlatformColor { PlatformColor(hex: 0x100F0F) }
-
-    static var orgSecondaryText: PlatformColor {
+    /// Creates a color that resolves to one 24-bit RGB hex value in light appearance and
+    /// another in dark appearance.
+    convenience init(light: UInt32, dark: UInt32) {
         #if os(macOS)
-        return .secondaryLabelColor
+        self.init(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return PlatformColor(hex: isDark ? dark : light)
+        }
         #else
-        return .secondaryLabel
+        self.init { traitCollection in
+            traitCollection.userInterfaceStyle == .dark ? PlatformColor(hex: dark) : PlatformColor(hex: light)
+        }
         #endif
     }
 
-    static var orgTertiaryText: PlatformColor {
-        #if os(macOS)
-        return .tertiaryLabelColor
-        #else
-        return .tertiaryLabel
-        #endif
-    }
+    static var orgBackground: PlatformColor { PlatformColor(light: 0xFFFCF0, dark: 0x100F0F) }
 
-    static func orgHeadlineColor(level: Int) -> PlatformColor { PlatformColor(hex: 0x100F0F) }
+    static var orgText: PlatformColor { PlatformColor(light: 0x100F0F, dark: 0xCECDC3) }
 
-    static var orgTodo: PlatformColor { PlatformColor(hex: 0xAF3029) }
-    static var orgDone: PlatformColor { PlatformColor(hex: 0x66800B) }
-    static var orgTag: PlatformColor { PlatformColor(hex: 0x5E409D) }
-    static var orgCode: PlatformColor { PlatformColor(hex: 0xBC5215) }
-    static var orgLink: PlatformColor { PlatformColor(hex: 0x205EA6) }
+    static var orgSecondaryText: PlatformColor { PlatformColor(light: 0x6F6E69, dark: 0x878580) }
 
-    static var orgCodeBackground: PlatformColor {
-        #if os(macOS)
-        return NSColor.textBackgroundColor.blended(withFraction: 0.06, of: .labelColor) ?? .textBackgroundColor
-        #else
-        return .secondarySystemBackground
-        #endif
-    }
+    static var orgTertiaryText: PlatformColor { PlatformColor(light: 0xB7B5AC, dark: 0x575653) }
+
+    static func orgHeadlineColor(level: Int) -> PlatformColor { .orgText }
+
+    static var orgTodo: PlatformColor { PlatformColor(light: 0xAF3029, dark: 0xD14D41) }
+    static var orgDone: PlatformColor { PlatformColor(light: 0x66800B, dark: 0x879A39) }
+    static var orgTag: PlatformColor { PlatformColor(light: 0x5E409D, dark: 0x8B7EC8) }
+    static var orgCode: PlatformColor { .orgText }
+    static var orgLink: PlatformColor { PlatformColor(light: 0x205EA6, dark: 0x4385BE) }
+
+    static var orgCodeBackground: PlatformColor { .orgBackground }
 }
