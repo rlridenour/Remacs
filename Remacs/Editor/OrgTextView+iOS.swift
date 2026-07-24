@@ -98,6 +98,28 @@ struct OrgTextView: UIViewRepresentable {
             textView.scrollRangeToVisible(textView.selectedRange)
         }
 
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard text == "\n", range.length == 0, let textStorage else { return true }
+            let fullText = textStorage.string as NSString
+            let cursorLocation = range.location
+            let lookupIndex = cursorLocation < fullText.length ? cursorLocation : max(cursorLocation - 1, 0)
+            guard let action = OrgHeadlineReturn.action(
+                headline: textStorage.headline(atCharacterIndex: lookupIndex),
+                cursorLocation: cursorLocation,
+                text: fullText
+            ) else { return true }
+
+            guard let start = textView.position(from: textView.beginningOfDocument, offset: action.replaceRange.location),
+                  let end = textView.position(from: start, offset: action.replaceRange.length),
+                  let textRange = textView.textRange(from: start, to: end) else { return true }
+            textView.replace(textRange, withText: action.replacement)
+
+            if let cursorPosition = textView.position(from: textView.beginningOfDocument, offset: action.newCursorLocation) {
+                textView.selectedTextRange = textView.textRange(from: cursorPosition, to: cursorPosition)
+            }
+            return false
+        }
+
         func updateExternalText(_ newValue: String) {
             guard let textView, textView.text != newValue else { return }
             let selectedRange = textView.selectedRange

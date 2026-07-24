@@ -10,6 +10,14 @@ import SwiftUI
 final class OrgNSTextView: NSTextView {
     var onToggleFold: ((Int) -> Void)?
     var onApplyEmphasis: ((OrgEmphasis) -> Void)?
+    var onHeadlineReturn: (() -> Bool)?
+
+    override func insertNewline(_ sender: Any?) {
+        if selectedRange().length == 0, onHeadlineReturn?() == true {
+            return
+        }
+        super.insertNewline(sender)
+    }
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 1, let headlineStart = headlineStarCharacterIndex(for: event) {
@@ -105,6 +113,9 @@ struct OrgTextView: NSViewRepresentable {
         textView.onApplyEmphasis = { [weak coordinator = context.coordinator] emphasis in
             coordinator?.applyEmphasis(emphasis)
         }
+        textView.onHeadlineReturn = { [weak coordinator = context.coordinator] in
+            coordinator?.applyHeadlineReturn() ?? false
+        }
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
@@ -175,6 +186,26 @@ struct OrgTextView: NSViewRepresentable {
             textStorage.replaceCharacters(in: replaceRange, with: replacement)
             textView.didChangeText()
             textView.setSelectedRange(newSelection)
+        }
+
+        /// Returns true if Return was handled specially (starting or clearing a heading),
+        /// false if the caller should fall back to inserting a plain newline.
+        func applyHeadlineReturn() -> Bool {
+            guard let textView, let textStorage else { return false }
+            let text = textStorage.string as NSString
+            let cursorLocation = textView.selectedRange().location
+            let lookupIndex = cursorLocation < text.length ? cursorLocation : max(cursorLocation - 1, 0)
+            guard let action = OrgHeadlineReturn.action(
+                headline: textStorage.headline(atCharacterIndex: lookupIndex),
+                cursorLocation: cursorLocation,
+                text: text
+            ) else { return false }
+
+            guard textView.shouldChangeText(in: action.replaceRange, replacementString: action.replacement) else { return false }
+            textStorage.replaceCharacters(in: action.replaceRange, with: action.replacement)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: action.newCursorLocation, length: 0))
+            return true
         }
     }
 }
