@@ -15,6 +15,7 @@ final class OrgNSTextView: NSTextView {
     var onPromoteList: (() -> Bool)?
     var onDemoteHeadline: (() -> Bool)?
     var onPromoteHeadline: (() -> Bool)?
+    var onExpandSnippet: (() -> Bool)?
 
     override func insertNewline(_ sender: Any?) {
         if selectedRange().length == 0, onSmartReturn?() == true {
@@ -63,6 +64,9 @@ final class OrgNSTextView: NSTextView {
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
         let isTabKey = event.keyCode == 48
         if isTabKey, modifiers.isEmpty {
+            if onExpandSnippet?() == true {
+                return
+            }
             if let textStorage = textStorage as? OrgTextStorage,
                let headline = textStorage.headline(atCharacterIndex: selectedRange().location),
                headline.canFold {
@@ -164,6 +168,9 @@ struct OrgTextView: NSViewRepresentable {
         }
         textView.onPromoteHeadline = { [weak coordinator = context.coordinator] in
             coordinator?.promoteHeadline() ?? false
+        }
+        textView.onExpandSnippet = { [weak coordinator = context.coordinator] in
+            coordinator?.expandSnippet() ?? false
         }
         controller.selectHandler = { [weak textView] range in
             guard let textView else { return }
@@ -269,6 +276,16 @@ struct OrgTextView: NSViewRepresentable {
                 return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
             }
             return false
+        }
+
+        /// Expands the keyword immediately before the cursor into its snippet text, if it
+        /// matches one. Returns true if handled, false if the caller should fall back to
+        /// folding, list demotion, or inserting a literal tab.
+        func expandSnippet() -> Bool {
+            guard let textView, let textStorage, textView.selectedRange().length == 0 else { return false }
+            let text = textStorage.string as NSString
+            guard let action = OrgSnippets.expansion(text: text, cursorLocation: textView.selectedRange().location) else { return false }
+            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
         }
 
         /// Adds one indentation step to the list item under the cursor. Returns true if
