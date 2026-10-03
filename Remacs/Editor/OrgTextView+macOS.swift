@@ -68,9 +68,7 @@ final class OrgNSTextView: NSTextView {
                 return
             }
             if let textStorage = textStorage as? OrgTextStorage,
-               let headline = textStorage.headline(atCharacterIndex: selectedRange().location),
-               headline.canFold {
-                onToggleFold?(headline.lineStart)
+               textStorage.toggleFold(atCharacterIndex: selectedRange().location) {
                 return
             }
             if onDemoteList?() == true {

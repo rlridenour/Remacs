@@ -18,6 +18,7 @@ enum OrgSyntaxHighlighter {
 
     struct Result {
         var headlines: [OrgHeadline]
+        var foldRegions: [OrgFoldRegion]
         var attributeRuns: [(NSRange, [NSAttributedString.Key: Any])]
     }
 
@@ -40,7 +41,7 @@ enum OrgSyntaxHighlighter {
         pattern: #"^[ \t]*#([ \t].*)?$"#, options: [.anchorsMatchLines]
     )
     private static let drawerLineRegex = try! NSRegularExpression(
-        pattern: #"^[ \t]*:[\w-]+:[ \t]*$"#, options: [.anchorsMatchLines]
+        pattern: #"^[ \t]*:([\w-]+):[ \t]*$"#, options: [.anchorsMatchLines]
     )
     private static let checkboxRegex = try! NSRegularExpression(
         pattern: #"^[ \t]*(?:[-+]|\d+[.)])[ \t]+\[([ Xx-])\]"#, options: [.anchorsMatchLines]
@@ -137,6 +138,18 @@ enum OrgSyntaxHighlighter {
         func isInsideHeadline(_ range: NSRange) -> Bool {
             headlineLineRanges.contains { NSIntersectionRange($0, range).length > 0 }
         }
+
+        // Block and drawer fold regions
+        var foldRegions: [OrgFoldRegion] = blockRanges.map { block in
+            let openingLine = text.lineRange(for: NSRange(location: block.location, length: 0))
+            return OrgFoldRegion(
+                kind: .block,
+                lineStart: block.location,
+                lineEnd: NSMaxRange(openingLine),
+                bodyEnd: NSMaxRange(text.lineRange(for: block))
+            )
+        }
+        foldRegions += findDrawers(in: text, excluding: blockRanges, headlineLineRanges: headlineLineRanges)
         func isExcluded(_ range: NSRange) -> Bool {
             isInsideBlock(range) || isInsideHeadline(range)
         }
@@ -211,7 +224,7 @@ enum OrgSyntaxHighlighter {
             }
         }
 
-        return Result(headlines: headlines, attributeRuns: runs)
+        return Result(headlines: headlines, foldRegions: foldRegions, attributeRuns: runs)
     }
 
     // MARK: - Blocks
@@ -239,5 +252,37 @@ enum OrgSyntaxHighlighter {
             }
         }
         return blocks
+    }
+
+    // MARK: - Drawers
+
+    /// Pairs each `:NAME:` line with the next `:END:` line. A drawer can't contain a
+    /// headline, and drawer-like lines inside blocks are ignored.
+    private static func findDrawers(in text: NSString, excluding blockRanges: [NSRange], headlineLineRanges: [NSRange]) -> [OrgFoldRegion] {
+        let fullRange = NSRange(location: 0, length: text.length)
+        var drawers: [OrgFoldRegion] = []
+        var openingLine: NSRange?
+        drawerLineRegex.enumerateMatches(in: text as String, range: fullRange) { match, _, _ in
+            guard let match,
+                  !blockRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
+            let lineRange = text.lineRange(for: NSRange(location: match.range.location, length: 0))
+            guard text.substring(with: match.range(at: 1)).uppercased() == "END" else {
+                openingLine = lineRange
+                return
+            }
+            guard let opening = openingLine else { return }
+            openingLine = nil
+            let crossesHeadline = headlineLineRanges.contains {
+                $0.location >= NSMaxRange(opening) && $0.location < lineRange.location
+            }
+            guard !crossesHeadline else { return }
+            drawers.append(OrgFoldRegion(
+                kind: .drawer,
+                lineStart: opening.location,
+                lineEnd: NSMaxRange(opening),
+                bodyEnd: NSMaxRange(lineRange)
+            ))
+        }
+        return drawers
     }
 }

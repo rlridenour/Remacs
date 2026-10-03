@@ -191,11 +191,8 @@ struct OrgTextView: UIViewRepresentable {
         }
 
         func toggleFoldAtSelection() -> Bool {
-            guard let textView, let textStorage,
-                  let headline = textStorage.headline(atCharacterIndex: textView.selectedRange.location),
-                  headline.canFold else { return false }
-            textStorage.toggleFold(for: headline)
-            return true
+            guard let textView, let textStorage else { return false }
+            return textStorage.toggleFold(atCharacterIndex: textView.selectedRange.location)
         }
 
         func applyEmphasis(_ emphasis: OrgEmphasis) {
