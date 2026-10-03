@@ -18,10 +18,10 @@ typealias PlatformColor = UIColor
 #endif
 
 extension PlatformFont {
-    static let orgBody: PlatformFont = .monospacedSystemFont(ofSize: 15, weight: .regular)
+    static let orgBody: PlatformFont = .monospacedSystemFont(ofSize: 16, weight: .regular)
 
     static func orgHeadline(level: Int) -> PlatformFont {
-        let size: CGFloat = max(15, 22 - CGFloat(max(0, level - 1)) * 1.5)
+        let size: CGFloat = max(16, 23 - CGFloat(max(0, level - 1)) * 1.5)
         #if os(macOS)
         return NSFont.boldSystemFont(ofSize: size)
         #else
@@ -68,21 +68,21 @@ extension PlatformColor {
         #endif
     }
 
-    static var orgBackground: PlatformColor { PlatformColor(light: 0xFFFCF0, dark: 0x100F0F) }
+    static var orgBackground: PlatformColor { PlatformColor(light: 0xFAFAFA, dark: 0x100F0F) }
 
-    static var orgText: PlatformColor { PlatformColor(light: 0x100F0F, dark: 0xCECDC3) }
+    static var orgText: PlatformColor { PlatformColor(light: 0x0A0A0A, dark: 0xCECDC3) }
 
-    static var orgSecondaryText: PlatformColor { PlatformColor(light: 0x6F6E69, dark: 0x878580) }
+    static var orgSecondaryText: PlatformColor { PlatformColor(light: 0x737373, dark: 0x878580) }
 
-    static var orgTertiaryText: PlatformColor { PlatformColor(light: 0xB7B5AC, dark: 0x575653) }
+    static var orgTertiaryText: PlatformColor { PlatformColor(light: 0xA3A3A3, dark: 0x575653) }
 
     static func orgHeadlineColor(level: Int) -> PlatformColor { .orgText }
 
-    static var orgTodo: PlatformColor { PlatformColor(light: 0xAF3029, dark: 0xD14D41) }
-    static var orgDone: PlatformColor { PlatformColor(light: 0x66800B, dark: 0x879A39) }
-    static var orgTag: PlatformColor { PlatformColor(light: 0x5E409D, dark: 0x8B7EC8) }
+    static var orgTodo: PlatformColor { PlatformColor(light: 0xB91C1C, dark: 0xD14D41) }
+    static var orgDone: PlatformColor { PlatformColor(light: 0x15803D, dark: 0x879A39) }
+    static var orgTag: PlatformColor { PlatformColor(light: 0x6D28D9, dark: 0x8B7EC8) }
     static var orgCode: PlatformColor { .orgText }
-    static var orgLink: PlatformColor { PlatformColor(light: 0x205EA6, dark: 0x4385BE) }
+    static var orgLink: PlatformColor { PlatformColor(light: 0x1D4ED8, dark: 0x4385BE) }
 
     static var orgCodeBackground: PlatformColor { .orgBackground }
 }
