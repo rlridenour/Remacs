@@ -136,6 +136,19 @@ final class OrgTextStorage: NSTextStorage {
         foldRegions.first { $0.lineStart <= index && index < $0.lineEnd }
     }
 
+    /// Line ends (just past the newline) of the opening lines of every currently-folded
+    /// headline, block, and drawer -- where the layout manager draws the fold ellipsis.
+    var foldedOpeningLineEnds: [Int] {
+        guard !foldedLineStarts.isEmpty else { return [] }
+        let headlineEnds = headlines
+            .filter { $0.canFold && foldedLineStarts.contains($0.lineStart) }
+            .map(\.lineEnd)
+        let regionEnds = foldRegions
+            .filter { $0.canFold && foldedLineStarts.contains($0.lineStart) }
+            .map(\.lineEnd)
+        return headlineEnds + regionEnds
+    }
+
     func isFolded(_ headline: OrgHeadline) -> Bool {
         foldedLineStarts.contains(headline.lineStart)
     }

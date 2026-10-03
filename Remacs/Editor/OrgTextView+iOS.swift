@@ -76,7 +76,7 @@ struct OrgTextView: UIViewRepresentable {
         let textStorage = OrgTextStorage()
         textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
 
-        let layoutManager = NSLayoutManager()
+        let layoutManager = OrgLayoutManager()
         layoutManager.delegate = context.coordinator.foldingDelegate
         textStorage.addLayoutManager(layoutManager)
 
