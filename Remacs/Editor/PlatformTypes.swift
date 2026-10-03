@@ -68,21 +68,21 @@ extension PlatformColor {
         #endif
     }
 
-    static var orgBackground: PlatformColor { PlatformColor(light: 0xFAFAFA, dark: 0x100F0F) }
+    static var orgBackground: PlatformColor { PlatformColor(light: 0xFAFAFA, dark: 0x121212) }
 
-    static var orgText: PlatformColor { PlatformColor(light: 0x0A0A0A, dark: 0xCECDC3) }
+    static var orgText: PlatformColor { PlatformColor(light: 0x0A0A0A, dark: 0xD4D4D4) }
 
-    static var orgSecondaryText: PlatformColor { PlatformColor(light: 0x737373, dark: 0x878580) }
+    static var orgSecondaryText: PlatformColor { PlatformColor(light: 0x737373, dark: 0x868686) }
 
-    static var orgTertiaryText: PlatformColor { PlatformColor(light: 0xA3A3A3, dark: 0x575653) }
+    static var orgTertiaryText: PlatformColor { PlatformColor(light: 0xA3A3A3, dark: 0x565656) }
 
     static func orgHeadlineColor(level: Int) -> PlatformColor { .orgText }
 
-    static var orgTodo: PlatformColor { PlatformColor(light: 0xB91C1C, dark: 0xD14D41) }
-    static var orgDone: PlatformColor { PlatformColor(light: 0x15803D, dark: 0x879A39) }
-    static var orgTag: PlatformColor { PlatformColor(light: 0x6D28D9, dark: 0x8B7EC8) }
+    static var orgTodo: PlatformColor { PlatformColor(light: 0xB91C1C, dark: 0xF87171) }
+    static var orgDone: PlatformColor { PlatformColor(light: 0x15803D, dark: 0x4ADE80) }
+    static var orgTag: PlatformColor { PlatformColor(light: 0x6D28D9, dark: 0xA78BFA) }
     static var orgCode: PlatformColor { .orgText }
-    static var orgLink: PlatformColor { PlatformColor(light: 0x1D4ED8, dark: 0x4385BE) }
+    static var orgLink: PlatformColor { PlatformColor(light: 0x1D4ED8, dark: 0x60A5FA) }
 
     static var orgCodeBackground: PlatformColor { .orgBackground }
 }
