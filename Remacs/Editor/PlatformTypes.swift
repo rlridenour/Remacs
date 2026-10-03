@@ -84,5 +84,5 @@ extension PlatformColor {
     static var orgCode: PlatformColor { .orgText }
     static var orgLink: PlatformColor { PlatformColor(light: 0x1D4ED8, dark: 0x60A5FA) }
 
-    static var orgCodeBackground: PlatformColor { .orgBackground }
+    static var orgCodeBackground: PlatformColor { PlatformColor(light: 0xF0F0F0, dark: 0x1E1E1E) }
 }

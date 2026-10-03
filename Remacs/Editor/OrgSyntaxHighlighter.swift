@@ -80,7 +80,8 @@ enum OrgSyntaxHighlighter {
         let fullRange = NSRange(location: 0, length: text.length)
         var runs: [(NSRange, [NSAttributedString.Key: Any])] = []
 
-        let blockRanges = findBlocks(in: text)
+        let blocks = findBlocks(in: text)
+        let blockRanges = blocks.map(\.range)
         func isInsideBlock(_ range: NSRange) -> Bool {
             blockRanges.contains { NSIntersectionRange($0, range).length > 0 }
         }
@@ -88,7 +89,6 @@ enum OrgSyntaxHighlighter {
         for block in blockRanges {
             runs.append((block, [
                 .font: PlatformFont.orgBody.orgMonospaced,
-                .backgroundColor: PlatformColor.orgCodeBackground,
                 .foregroundColor: PlatformColor.orgCode
             ]))
         }
@@ -140,10 +140,11 @@ enum OrgSyntaxHighlighter {
         }
 
         // Block and drawer fold regions
-        var foldRegions: [OrgFoldRegion] = blockRanges.map { block in
+        var foldRegions: [OrgFoldRegion] = blocks.map { (block, name) in
             let openingLine = text.lineRange(for: NSRange(location: block.location, length: 0))
             return OrgFoldRegion(
                 kind: .block,
+                name: name,
                 lineStart: block.location,
                 lineEnd: NSMaxRange(openingLine),
                 closingLineStart: text.lineRange(for: NSRange(location: NSMaxRange(block) - 1, length: 0)).location,
@@ -230,26 +231,28 @@ enum OrgSyntaxHighlighter {
 
     // MARK: - Blocks
 
-    private static func findBlocks(in text: NSString) -> [NSRange] {
+    /// Returns each block's range (from the start of its `#+begin_` line to the end of its
+    /// `#+end_` line, excluding the trailing newline) and its lowercased type, e.g. "src".
+    private static func findBlocks(in text: NSString) -> [(range: NSRange, name: String)] {
         let fullRange = NSRange(location: 0, length: text.length)
-        var events: [(location: Int, isBegin: Bool, lineEnd: Int)] = []
+        var events: [(location: Int, isBegin: Bool, lineEnd: Int, name: String)] = []
         blockBeginRegex.enumerateMatches(in: text as String, range: fullRange) { match, _, _ in
             guard let match else { return }
-            events.append((match.range.location, true, match.range.location + match.range.length))
+            events.append((match.range.location, true, match.range.location + match.range.length, text.substring(with: match.range(at: 1)).lowercased()))
         }
         blockEndRegex.enumerateMatches(in: text as String, range: fullRange) { match, _, _ in
             guard let match else { return }
-            events.append((match.range.location, false, match.range.location + match.range.length))
+            events.append((match.range.location, false, match.range.location + match.range.length, text.substring(with: match.range(at: 1)).lowercased()))
         }
         events.sort { $0.location < $1.location }
 
-        var blocks: [NSRange] = []
-        var stack: [Int] = []
+        var blocks: [(range: NSRange, name: String)] = []
+        var stack: [(location: Int, name: String)] = []
         for event in events {
             if event.isBegin {
-                stack.append(event.location)
+                stack.append((event.location, event.name))
             } else if let start = stack.popLast() {
-                blocks.append(NSRange(location: start, length: event.lineEnd - start))
+                blocks.append((NSRange(location: start.location, length: event.lineEnd - start.location), start.name))
             }
         }
         return blocks
@@ -263,12 +266,15 @@ enum OrgSyntaxHighlighter {
         let fullRange = NSRange(location: 0, length: text.length)
         var drawers: [OrgFoldRegion] = []
         var openingLine: NSRange?
+        var openingName = ""
         drawerLineRegex.enumerateMatches(in: text as String, range: fullRange) { match, _, _ in
             guard let match,
                   !blockRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { return }
             let lineRange = text.lineRange(for: NSRange(location: match.range.location, length: 0))
-            guard text.substring(with: match.range(at: 1)).uppercased() == "END" else {
+            let name = text.substring(with: match.range(at: 1)).lowercased()
+            guard name == "end" else {
                 openingLine = lineRange
+                openingName = name
                 return
             }
             guard let opening = openingLine else { return }
@@ -279,6 +285,7 @@ enum OrgSyntaxHighlighter {
             guard !crossesHeadline else { return }
             drawers.append(OrgFoldRegion(
                 kind: .drawer,
+                name: openingName,
                 lineStart: opening.location,
                 lineEnd: NSMaxRange(opening),
                 closingLineStart: lineRange.location,

@@ -16,6 +16,7 @@ final class OrgNSTextView: NSTextView {
     var onDemoteHeadline: (() -> Bool)?
     var onPromoteHeadline: (() -> Bool)?
     var onExpandSnippet: (() -> Bool)?
+    var onNextSnippetStop: (() -> Bool)?
 
     override func insertNewline(_ sender: Any?) {
         if selectedRange().length == 0, onSmartReturn?() == true {
@@ -65,6 +66,9 @@ final class OrgNSTextView: NSTextView {
         let isTabKey = event.keyCode == 48
         if isTabKey, modifiers.isEmpty {
             if onExpandSnippet?() == true {
+                return
+            }
+            if onNextSnippetStop?() == true {
                 return
             }
             if let textStorage = textStorage as? OrgTextStorage,
@@ -175,6 +179,9 @@ struct OrgTextView: NSViewRepresentable {
         textView.onExpandSnippet = { [weak coordinator = context.coordinator] in
             coordinator?.expandSnippet() ?? false
         }
+        textView.onNextSnippetStop = { [weak coordinator = context.coordinator] in
+            coordinator?.nextSnippetStop() ?? false
+        }
         controller.selectHandler = { [weak textView] range in
             guard let textView else { return }
             textView.setSelectedRange(range)
@@ -226,6 +233,7 @@ struct OrgTextView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView else { return }
             controller.updateSelection(textView.selectedRange())
+            textStorage?.endSnippetSession(ifOutside: textView.selectedRange().location)
         }
 
         func updateExternalText(_ newValue: String) {
@@ -287,8 +295,19 @@ struct OrgTextView: NSViewRepresentable {
         func expandSnippet() -> Bool {
             guard let textView, let textStorage, textView.selectedRange().length == 0 else { return false }
             let text = textStorage.string as NSString
-            guard let action = OrgSnippets.expansion(text: text, cursorLocation: textView.selectedRange().location) else { return false }
-            return apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation)
+            guard let action = OrgSnippets.expansion(text: text, cursorLocation: textView.selectedRange().location),
+                  apply(action.replaceRange, action.replacement, selectingLocation: action.newCursorLocation) else { return false }
+            textStorage.snippetSession = action.session
+            return true
+        }
+
+        /// Moves the cursor to the just-expanded snippet's next tab stop. Returns false if
+        /// there isn't one, so Tab falls back to its other behaviors.
+        func nextSnippetStop() -> Bool {
+            guard let textView, let textStorage,
+                  let stop = textStorage.popSnippetStop(cursor: textView.selectedRange().location) else { return false }
+            textView.setSelectedRange(NSRange(location: stop, length: 0))
+            return true
         }
 
         /// Adds one indentation step to the list item under the cursor. Returns true if

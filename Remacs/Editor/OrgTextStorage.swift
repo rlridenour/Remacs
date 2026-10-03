@@ -29,6 +29,10 @@ final class OrgTextStorage: NSTextStorage {
     /// one of these, so a single set covers all three kinds.
     private(set) var foldedLineStarts: Set<Int> = []
 
+    /// The tab stops left in the most recently expanded snippet. Kept here rather than in
+    /// the view because every edit, including undo, passes through `replaceCharacters`.
+    var snippetSession: OrgSnippetSession?
+
     override var string: String { backingStore.string }
 
     override func attributes(at location: Int, effectiveRange range: NSRangePointer?) -> [NSAttributedString.Key: Any] {
@@ -41,6 +45,7 @@ final class OrgTextStorage: NSTextStorage {
         backingStore.replaceCharacters(in: range, with: str)
         edited(.editedCharacters, range: range, changeInLength: delta)
         remapFoldedLineStarts(editedRange: range, delta: delta)
+        snippetSession?.remap(editedRange: range, delta: delta)
         endEditing()
     }
 
@@ -126,7 +131,33 @@ final class OrgTextStorage: NSTextStorage {
         })
     }
 
+    // MARK: - Snippet tab stops
+
+    /// Removes and returns the active snippet's next tab stop, provided `cursor` is still
+    /// inside the snippet. Returns nil (ending the session) otherwise.
+    func popSnippetStop(cursor: Int) -> Int? {
+        guard var session = snippetSession, session.contains(cursor), !session.stops.isEmpty else {
+            snippetSession = nil
+            return nil
+        }
+        let stop = session.stops.removeFirst()
+        snippetSession = session.stops.isEmpty ? nil : session
+        return stop
+    }
+
+    /// Ends the active snippet session once the cursor leaves the snippet.
+    func endSnippetSession(ifOutside location: Int) {
+        if let session = snippetSession, !session.contains(location) {
+            snippetSession = nil
+        }
+    }
+
     // MARK: - Queries
+
+    /// Source and example blocks, which get a tinted background.
+    var codeBlocks: [OrgFoldRegion] {
+        foldRegions.filter { $0.kind == .block && ($0.name == "src" || $0.name == "example") }
+    }
 
     func headline(atCharacterIndex index: Int) -> OrgHeadline? {
         headlines.first { $0.lineStart <= index && index < $0.lineEnd }

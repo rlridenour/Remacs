@@ -15,6 +15,8 @@ struct OrgFoldRegion: Equatable {
     }
 
     let kind: Kind
+    /// Lowercased block type (e.g. "src", "quote") or drawer name (e.g. "properties").
+    let name: String
     /// Character offset of the start of the opening (`#+begin_…` or `:NAME:`) line.
     let lineStart: Int
     /// Character offset just past the end of the opening line (including its trailing newline).

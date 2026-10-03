@@ -6,6 +6,10 @@
 //  pressed, e.g. typing "date" then Tab inserts today's date, or "<q" then Tab wraps into
 //  a #+begin_quote/#+end_quote block with the cursor left inside it.
 //
+//  Templates mark tab stops yasnippet-style: `$1`, `$2`, … are visited in order with Tab,
+//  and `$0` is the final position (the end of the expansion if omitted). A literal dollar
+//  sign before a digit is written `\$`.
+//
 
 import Foundation
 
@@ -14,11 +18,9 @@ enum OrgSnippets {
         let replaceRange: NSRange
         let replacement: String
         let newCursorLocation: Int
+        /// The tab stops still to visit after `newCursorLocation`, or nil if there are none.
+        let session: OrgSnippetSession?
     }
-
-    /// Marks where the cursor should land inside a template; stripped before insertion.
-    /// Templates that omit it place the cursor at the end of the expansion instead.
-    private static let cursorMarker = "\u{0}"
 
     /// Keyword -> expansion text. "date"/"time" are computed per-call so they reflect the
     /// current moment rather than being frozen at app launch. The `<x` entries mirror
@@ -28,25 +30,24 @@ enum OrgSnippets {
         dateFormatter.dateStyle = .long
         let timeFormatter = DateFormatter()
         timeFormatter.timeStyle = .short
-        let marker = cursorMarker
 
         return [
             "date": dateFormatter.string(from: Date()),
             "time": timeFormatter.string(from: Date()),
 
-            "<q": "#+begin_quote\n\(marker)\n#+end_quote",
-            "<s": "#+begin_src \n\(marker)\n#+end_src",
-            "<v": "#+begin_verse\n\(marker)\n#+end_verse",
-            "<c": "#+begin_center\n\(marker)\n#+end_center",
+            "<q": "#+begin_quote\n$0\n#+end_quote",
+            "<s": "#+begin_src $1\n$0\n#+end_src",
+            "<v": "#+begin_verse\n$0\n#+end_verse",
+            "<c": "#+begin_center\n$0\n#+end_center",
 
             "ttable": "#+ATTR_TYPST: :stroke none :columns auto :align",
             "tsfh": "#+TOUYING_IMPORT: \"@local/standard-form:0.2.0\": *",
             "sfh": "#+TYPST: #import \"@local/standard-form:0.2.0\": standard-form",
-            "t2c": "#+begin_columns\n#+begin_column\n\(marker)\n#+end_column\n#+begin_column\n\n#+end_column\n#+end_columns",
-            "tff": "#+begin_fullslide\n\(marker)\n#+end_fullslide",
+            "t2c": "#+begin_columns\n#+begin_column\n$1\n#+end_column\n#+begin_column\n$2\n#+end_column\n#+end_columns",
+            "tff": "#+begin_fullslide\n$0\n#+end_fullslide",
             "timg": "#+ATTR_TOUYING: :width auto :height auto :fit \"contain\"",
-            "tmp": "#+begin_fullslide\n#+ATTR_TOUYING: :size 2em\n#+begin_statement\n\(marker)\n#+end_statement\n#+end_fullslide",
-            "tn": "#+begin_speakernote\n\(marker)\n#+end_speakernote\n\n#+begin_handoutnote\n\n#+end_handoutnote",
+            "tmp": "#+begin_fullslide\n#+ATTR_TOUYING: :size 2em\n#+begin_statement\n$0\n#+end_statement\n#+end_fullslide",
+            "tn": "#+begin_speakernote\n$1\n#+end_speakernote\n\n#+begin_handoutnote\n$2\n#+end_handoutnote",
             "tp": "@@typst:#pause@@"
         ]
     }
@@ -60,11 +61,47 @@ enum OrgSnippets {
         let keyword = text.substring(with: range)
         guard let template = snippets[keyword] else { return nil }
 
-        let markerRange = (template as NSString).range(of: cursorMarker)
-        let replacement = template.replacingOccurrences(of: cursorMarker, with: "")
-        let cursorOffset = markerRange.location == NSNotFound ? (replacement as NSString).length : markerRange.location
-        let newCursorLocation = wordStart + cursorOffset
-        return Action(replaceRange: range, replacement: replacement, newCursorLocation: newCursorLocation)
+        let (replacement, stopOffsets) = parseTabStops(template)
+        let stops = stopOffsets.map { wordStart + $0 }
+        let remaining = Array(stops.dropFirst())
+        let session = remaining.isEmpty ? nil : OrgSnippetSession(
+            stops: remaining,
+            range: NSRange(location: wordStart, length: (replacement as NSString).length)
+        )
+        return Action(replaceRange: range, replacement: replacement, newCursorLocation: stops[0], session: session)
+    }
+
+    /// Strips the `$N` markers out of `template`, returning the plain text and the UTF-16
+    /// offsets of its tab stops in visiting order: `$1`, `$2`, … then `$0` (or the end of
+    /// the text when there's no `$0`). Always returns at least one stop.
+    static func parseTabStops(_ template: String) -> (text: String, stops: [Int]) {
+        var text = ""
+        var numbered: [(number: Int, offset: Int)] = []
+        var finalStop: Int?
+        var characters = template.makeIterator()
+        var pending = characters.next()
+        while let character = pending {
+            pending = characters.next()
+            if character == "\\", pending == "$" {
+                text.append("$")
+                pending = characters.next()
+            } else if character == "$", let next = pending, let number = next.wholeNumberValue, next.isASCII {
+                let offset = text.utf16.count
+                if number == 0 {
+                    finalStop = finalStop ?? offset
+                } else {
+                    numbered.append((number, offset))
+                }
+                pending = characters.next()
+            } else {
+                text.append(character)
+            }
+        }
+        // Stable sort keeps repeated numbers in the order they appear.
+        let ordered = numbered.enumerated()
+            .sorted { ($0.element.number, $0.offset) < ($1.element.number, $1.offset) }
+            .map(\.element.offset)
+        return (text, ordered + [finalStop ?? text.utf16.count])
     }
 
     /// Finds the start of the run of letters/digits immediately before `cursorLocation` --
@@ -81,5 +118,35 @@ enum OrgSnippets {
             start -= 1
         }
         return start
+    }
+}
+
+/// The tab stops left to visit in a just-expanded snippet. Positions are kept in step
+/// with edits by `remap(editedRange:delta:)` so they stay put while you type.
+struct OrgSnippetSession: Equatable {
+    /// Remaining stops, in visiting order.
+    var stops: [Int]
+    /// The extent of the expanded snippet. Moving the cursor outside it ends the session.
+    var range: NSRange
+
+    func contains(_ location: Int) -> Bool {
+        range.location <= location && location <= NSMaxRange(range)
+    }
+
+    /// Shifts positions after an edit replacing `editedRange` with text `delta` characters
+    /// longer (or shorter). Text typed exactly at a position goes before it, so a stop
+    /// stays after anything typed at an earlier stop sharing its location.
+    mutating func remap(editedRange: NSRange, delta: Int) {
+        func remapped(_ position: Int) -> Int {
+            let editEnd = NSMaxRange(editedRange)
+            if position >= editEnd { return position + delta }
+            if position > editedRange.location { return editedRange.location }
+            return position
+        }
+        stops = stops.map(remapped)
+        let start = remapped(range.location)
+        // The range's start stays put when typing exactly at it.
+        let adjustedStart = range.location == editedRange.location ? range.location : start
+        range = NSRange(location: adjustedStart, length: max(remapped(NSMaxRange(range)) - adjustedStart, 0))
     }
 }
