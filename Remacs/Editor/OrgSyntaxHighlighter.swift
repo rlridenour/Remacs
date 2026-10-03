@@ -146,6 +146,7 @@ enum OrgSyntaxHighlighter {
                 kind: .block,
                 lineStart: block.location,
                 lineEnd: NSMaxRange(openingLine),
+                closingLineStart: text.lineRange(for: NSRange(location: NSMaxRange(block) - 1, length: 0)).location,
                 bodyEnd: NSMaxRange(text.lineRange(for: block))
             )
         }
@@ -280,6 +281,7 @@ enum OrgSyntaxHighlighter {
                 kind: .drawer,
                 lineStart: opening.location,
                 lineEnd: NSMaxRange(opening),
+                closingLineStart: lineRange.location,
                 bodyEnd: NSMaxRange(lineRange)
             ))
         }

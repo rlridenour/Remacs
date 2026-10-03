@@ -19,6 +19,8 @@ struct OrgFoldRegion: Equatable {
     let lineStart: Int
     /// Character offset just past the end of the opening line (including its trailing newline).
     let lineEnd: Int
+    /// Character offset of the start of the closing (`#+end_…` or `:END:`) line.
+    let closingLineStart: Int
     /// Character offset just past the end of the closing line (including its trailing newline).
     let bodyEnd: Int
 

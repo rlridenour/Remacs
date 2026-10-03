@@ -69,6 +69,11 @@ final class OrgNSTextView: NSTextView {
             }
             if let textStorage = textStorage as? OrgTextStorage,
                textStorage.toggleFold(atCharacterIndex: selectedRange().location) {
+                // Folding from a block's or drawer's closing line hides the cursor's line.
+                let location = textStorage.locationOutsideFold(selectedRange().location)
+                if location != selectedRange().location {
+                    setSelectedRange(NSRange(location: location, length: 0))
+                }
                 return
             }
             if onDemoteList?() == true {

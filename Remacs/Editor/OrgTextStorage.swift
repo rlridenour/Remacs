@@ -132,8 +132,29 @@ final class OrgTextStorage: NSTextStorage {
         headlines.first { $0.lineStart <= index && index < $0.lineEnd }
     }
 
+    /// The block or drawer whose opening or closing line contains `index`.
     func foldRegion(atCharacterIndex index: Int) -> OrgFoldRegion? {
-        foldRegions.first { $0.lineStart <= index && index < $0.lineEnd }
+        // A cursor at the very end of the document is on the last line only if that line
+        // has no trailing newline (otherwise it's on a new, empty line).
+        let atEndOfUnterminatedLastLine = index == length && !string.hasSuffix("\n")
+        return foldRegions.first { region in
+            if region.lineStart <= index && index < region.lineEnd { return true }
+            if region.closingLineStart <= index && index < region.bodyEnd { return true }
+            return atEndOfUnterminatedLastLine && index == region.bodyEnd
+        }
+    }
+
+    /// If `index` falls inside folded (hidden) text, returns the end of the visible opening
+    /// line that hides it, so the cursor can be moved somewhere visible. Otherwise returns
+    /// `index` unchanged.
+    func locationOutsideFold(_ index: Int) -> Int {
+        let probe = index < length ? index : index - 1
+        guard probe >= 0 else { return index }
+        var folded = NSRange()
+        guard attribute(.orgFolded, at: probe, longestEffectiveRange: &folded, in: NSRange(location: 0, length: length)) != nil else {
+            return index
+        }
+        return max(folded.location - 1, 0)
     }
 
     /// Line ends (just past the newline) of the opening lines of every currently-folded
@@ -160,8 +181,8 @@ final class OrgTextStorage: NSTextStorage {
         toggleFold(lineStart: headline.lineStart)
     }
 
-    /// Toggles folding for the headline, block, or drawer whose opening line contains
-    /// `index`. Returns false if there's nothing foldable there. Same calling constraints
+    /// Toggles folding for the headline, block, or drawer whose opening line (or, for a
+    /// block or drawer, closing line) contains `index`. Returns false if there's nothing foldable there. Same calling constraints
     /// as `toggleFold(for:)`.
     @discardableResult
     func toggleFold(atCharacterIndex index: Int) -> Bool {

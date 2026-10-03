@@ -191,8 +191,14 @@ struct OrgTextView: UIViewRepresentable {
         }
 
         func toggleFoldAtSelection() -> Bool {
-            guard let textView, let textStorage else { return false }
-            return textStorage.toggleFold(atCharacterIndex: textView.selectedRange.location)
+            guard let textView, let textStorage,
+                  textStorage.toggleFold(atCharacterIndex: textView.selectedRange.location) else { return false }
+            // Folding from a block's or drawer's closing line hides the cursor's line.
+            let location = textStorage.locationOutsideFold(textView.selectedRange.location)
+            if location != textView.selectedRange.location {
+                textView.selectedRange = NSRange(location: location, length: 0)
+            }
+            return true
         }
 
         func applyEmphasis(_ emphasis: OrgEmphasis) {
