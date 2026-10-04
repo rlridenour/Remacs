@@ -38,6 +38,7 @@ struct ContentView: View {
             }
         }
         .animation(.default, value: isFindBarVisible)
+        .snippetsMenu()
         .background {
             Group {
                 Button("Find", action: openFindBar)
